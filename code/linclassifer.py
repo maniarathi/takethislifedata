@@ -11,6 +11,8 @@ from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
 from sklearn import svm
+from sklearn.linear_model import SGDClassifier
+from sklearn.feature_extraction import DictVectorizer
 
 GLOVE = utils.glove2dict(os.path.join(glove_home, 'glove.6B.100d.txt'))
 
@@ -55,6 +57,49 @@ def ternary_class_func(y):
 def original_class(y):
     return y
 
+###############################################################################
+# BEGIN FEATURE EXTRACTORS HERE
+###############################################################################
+def glove_phi(texts):
+    unknown = defaultdict(int)
+    data = np.zeros((len(texts), 100))
+    for i, r in enumerate(texts):
+        words = r.split(" ")
+        vec = []
+        for word in words:
+            if word in GLOVE:
+                vec.append(GLOVE[word])
+            else:
+                unknown[word] += 1
+        vec = np.array(vec)
+        curSum = np.sum(vec, axis=0)
+        data[i] = curSum
+    data = PCA(n_components='mle').fit_transform(data)
+    return data
+
+def unigram_phi(texts):
+    all_feats = []
+    for text in texts:
+        all_feats.append(Counter(text))
+    vectorizer = DictVectorizer(sparse=False)
+    return vectorizer.fit_transform(all_feats)
+
+def bigram_phi(texts):
+    all_feats = []
+    for text in texts:
+        words = text.split(" ")
+        bigrams = []
+        for i in xrange(len(words) - 1):
+            bigrams.append(words[i] + " " + words[i+1])
+        features = Counter(bigrams)
+        all_feats.append(features)
+    vectorizer = DictVectorizer(sparse=False)
+    return vectorizer.fit_transform(all_feats)
+
+###############################################################################
+# END FEATURE EXTRACTORS HERE
+###############################################################################   
+
 def get_labeled_data(filename='../final_rated_posts.csv', class_func=original_class):
     with open(filename, 'rb') as inpFile:
         responses = []
@@ -71,26 +116,13 @@ def get_labeled_data(filename='../final_rated_posts.csv', class_func=original_cl
     print "Size of all labeled data (train + test) = %d" % len(responses)
     return responses, labels
 
-def build_dataset():
-    responses, labels = get_labeled_data(class_func=ternary_class_func)
-    unknown = defaultdict(int)
-    data = np.zeros((len(responses), 100))
-    for i, r in enumerate(responses):
-        words = r.split(" ")
-        vec = []
-        for word in words:
-            if word in GLOVE:
-                vec.append(GLOVE[word])
-            else:
-                unknown[word]+=1
-        vec = np.array(vec)
-        curSum = np.sum(vec, axis=0)
-        data[i] = curSum
+def build_dataset(phi, class_func):
+    responses, labels = get_labeled_data(class_func=class_func)
+    data = phi(responses)
     return data, labels
 
-def run_experiment(model):
-    X, y = build_dataset()
-    X = PCA(n_components='mle').fit_transform(X)
+def run_experiment(model, phi=glove_phi, class_func=original_class):
+    X, y = build_dataset(phi, class_func)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
     score, predicted_labels = model(X_train, X_test, y_train, y_test)
     print "Ran %s" % model.__name__
@@ -123,10 +155,25 @@ def SVC(X_train, X_test, y_train, y_test):
     svm_score = clf.score(X_test, y_test)
     return svm_score, svm_labels
 
+def SGD(X_train, X_test, y_train, y_test):
+    mod = SGDClassifier(fit_intercept=True)
+    mod.fit(X_train, y_train)
+    sgd_labels = mod.predict(X_test)
+    sgd_score = mod.score(X_test, y_test)
+    return sgd_score, sgd_labels
+
+
 ###############################################################################
 # END MODELS HERE
 ###############################################################################
 
 if __name__ == "__main__":
-    run_experiment(k_means)
-    run_experiment(SVC)
+    #run_experiment(k_means)
+    #run_experiment(SVC)
+    #run_experiment(SGD)
+    #run_experiment(k_means, phi=unigram_phi)
+    #run_experiment(SVC, phi=unigram_phi)
+    #run_experiment(SGD, phi=unigram_phi)
+    run_experiment(k_means, phi=bigram_phi)
+    run_experiment(SVC, phi=bigram_phi)
+    run_experiment(SGD, phi=bigram_phi)
